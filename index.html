@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset Tag Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <h1>Asset Tag Generator</h1>
+    <input type="file" id="uploadExcel" accept=".xlsx, .xls" />
+    <button id="generateTags">Generate Asset Tags</button>
+    <button id="downloadAll" style="display: none;">Download All</button>
+    <canvas id="tagCanvas" width="800" height="400" style="border:1px solid #000;"></canvas>
+
+    <script>
+        let assets = [];
+        let generatedImages = [];
+
+        // Function to handle file upload
+        document.getElementById('uploadExcel').addEventListener('change', function (event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function (e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                // Clear the assets array before adding new data
+                assets = [];
+
+                // Loop through all sheets in the workbook
+                workbook.SheetNames.forEach(sheetName => {
+                    const sheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                    // Extract assets from columns A (Asset number) and D (URL link for QR Code)
+                    const sheetAssets = rows.slice(1).map(row => {
+                        const assetNumber = row[0]?.toString().trim();  // Convert to string and trim
+                        const link = row[3]?.toString().trim();        // Convert to string and trim
+
+                        // Only add rows with valid data
+                        if (assetNumber && link) {
+                            return { number: assetNumber, link: link };
+                        }
+                        return null;
+                    }).filter(asset => asset !== null); // Filter out null values
+
+                    // Add sheet assets to the overall assets list
+                    assets = [...assets, ...sheetAssets];
+                });
+
+                // Show an alert with the total count of assets
+                alert(`${assets.length} assets loaded successfully from ${workbook.SheetNames.length} sheets.`);
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Function to generate QR code URL from a link using a QR Code Generator API
+        function generateQRCodeUrl(link) {
+            const qrCodeApiUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(link)}&size=150x150`;
+            return qrCodeApiUrl;
+        }
+
+        // Function to draw asset tags on the canvas
+        function drawAssetTag(assetNumber, qrCodeUrl) {
+            const canvas = document.getElementById('tagCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw border
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect(10, 10, 780, 380);
+
+            // Draw asset number
+            ctx.font = '24px Arial';
+            ctx.fillStyle = '#000';
+            ctx.fillText(`Asset: ${assetNumber}`, 20, 50);
+
+            // Draw QR code
+            const qrImage = new Image();
+            qrImage.onload = function () {
+                ctx.drawImage(qrImage, 20, 100, 200, 200); // Adjust the size of the QR code
+            };
+            qrImage.src = qrCodeUrl;
+        }
+
+        // Function to save the canvas content as an image file
+        function saveCanvasAsImage(canvas, assetNumber) {
+            const imageUrl = canvas.toDataURL("image/png"); // Get the image URL in PNG format
+            generatedImages.push({ imageUrl, assetNumber });
+        }
+
+        // Function to download all the generated asset tag images
+        function downloadAllTags() {
+            generatedImages.forEach(image => {
+                const link = document.createElement('a');
+                link.href = image.imageUrl;
+                link.download = `${image.assetNumber}_tag.png`;
+                link.click(); // Trigger the download
+            });
+        }
+
+        // Function to generate all asset tags
+        document.getElementById('generateTags').addEventListener('click', function () {
+            if (assets.length === 0) {
+                alert('No data available. Please upload a valid Excel file first.');
+                return;
+            }
+
+            generatedImages = []; // Reset the generated images array
+            let currentIndex = 0;
+
+            // Function to process the next asset
+            function processNextAsset() {
+                if (currentIndex >= assets.length) {
+                    document.getElementById('downloadAll').style.display = 'inline'; // Show the download button
+                    alert('All tags generated! Click "Download All" to save them.');
+                    return;
+                }
+
+                const asset = assets[currentIndex];
+                const qrCodeUrl = generateQRCodeUrl(asset.link);
+                drawAssetTag(asset.number, qrCodeUrl);
+                saveCanvasAsImage(document.getElementById('tagCanvas'), asset.number);
+
+                currentIndex++;
+
+                // Recursively call processNextAsset with a delay
+                setTimeout(processNextAsset, 2000); // Change every 2 seconds (adjust as necessary)
+            }
+
+            processNextAsset(); // Start processing the first asset
+        });
+
+        // Download all generated asset tags
+        document.getElementById('downloadAll').addEventListener('click', downloadAllTags);
+    </script>
+</body>
+</html>
